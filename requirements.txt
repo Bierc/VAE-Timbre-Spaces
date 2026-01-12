@@ -1,0 +1,19 @@
+# Core
+numpy
+scipy
+matplotlib
+
+# Audio
+librosa
+soundfile
+
+# Deep Learning (GPU via conda)
+torch
+torchaudio
+
+# ML / analysis
+scikit-learn
+umap-learn
+
+# Utilities
+tqdm
