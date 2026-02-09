@@ -1,0 +1,14 @@
+{
+  "LATENT_DIM": 32,
+  "BETA_MAX": 2.0,
+  "FREE_BITS": 0.5,
+  "WARMUP_STEPS": 500,
+  "LR": 0.001,
+  "cond_dim": 16,
+  "pitch_vocab": 128,
+  "N_MELS": 80,
+  "N_FFT": 2048,
+  "HOP": 256,
+  "T": 128,
+  "SR": 16000
+}
