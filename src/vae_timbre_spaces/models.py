@@ -1,7 +1,8 @@
 # models.py
+# Full model implementation ported into the package so external imports use
+# vae_timbre_spaces.models.* directly.
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Tuple
 
 import torch
@@ -16,14 +17,6 @@ import torch.nn.functional as F
 class VAEConvEncoder(nn.Module):
     """
     Convolutional encoder for log-mel inputs shaped (B, 1, 80, 128).
-
-    Architecture:
-      (B,1,80,128)
-        -> Conv2d(1->16, k3,s2,p1)  => (B,16,40,64)
-        -> Conv2d(16->32,k3,s2,p1)  => (B,32,20,32)
-        -> Conv2d(32->64,k3,s2,p1)  => (B,64,10,16)
-        -> flatten => (B, 64*10*16 = 10240)
-        -> fc_mu, fc_logvar => (B, latent_dim)
     """
     def __init__(self, latent_dim: int = 32):
         super().__init__()
@@ -53,12 +46,6 @@ class VAEConvEncoder(nn.Module):
 class ConvDecoder(nn.Module):
     """
     Convolutional decoder that maps z (B,latent_dim) back to (B,1,80,128).
-
-    Architecture:
-      z -> fc -> (B,64*10*16) -> reshape (B,64,10,16)
-        -> ConvT(64->32,k4,s2,p1) => (B,32,20,32)
-        -> ConvT(32->16,k4,s2,p1) => (B,16,40,64)
-        -> ConvT(16->1 ,k4,s2,p1) => (B, 1,80,128)
     """
     def __init__(self, latent_dim: int = 32):
         super().__init__()
@@ -80,21 +67,12 @@ class ConvDecoder(nn.Module):
 
 
 def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-    """
-    z = mu + std * eps, where std = exp(0.5*logvar), eps ~ N(0, I)
-    """
     std = torch.exp(0.5 * logvar)
     eps = torch.randn_like(std)
     return mu + eps * std
 
 
 class VAE(nn.Module):
-    """
-    Baseline VAE:
-      encoder(x) -> (mu, logvar)
-      z = reparameterize(mu, logvar)
-      decoder(z) -> x_hat
-    """
     def __init__(self, latent_dim: int = 32):
         super().__init__()
         self.encoder = VAEConvEncoder(latent_dim=latent_dim)
@@ -111,11 +89,8 @@ class VAE(nn.Module):
 # Loss helpers
 # -----------------------------
 
+
 def kl_raw_per_sample(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-    """
-    KL(q(z|x) || p(z)) for diagonal Gaussians, per sample.
-    Returns shape: (B,)
-    """
     return -0.5 * torch.sum(1.0 + logvar - mu.pow(2) - logvar.exp(), dim=1)
 
 
@@ -127,15 +102,6 @@ def vae_loss(
     beta: float = 1.0,
     free_bits: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Returns:
-      total, recon, kl_raw_mean, kl_fb_mean
-
-    - recon: MSE mean over all elements
-    - kl_raw_mean: mean over batch (raw KL)
-    - kl_fb_mean: mean over batch of clamp(KL_per_sample, min=free_bits)
-    - total = recon + beta * kl_fb_mean
-    """
     recon = F.mse_loss(x_hat, x, reduction="mean")
 
     kl_ps = kl_raw_per_sample(mu, logvar)    # (B,)
@@ -154,10 +120,8 @@ def vae_loss(
 # Beta schedule helper
 # -----------------------------
 
-def linear_beta_schedule(global_step: int, warmup_steps: int, beta_max: float) -> float:
-    """
-    Linear warmup from 0 to beta_max.
-    """
+
+def beta_schedule(global_step: int, warmup_steps: int, beta_max: float) -> float:
     if warmup_steps <= 0:
         return float(beta_max)
     frac = min(1.0, float(global_step) / float(warmup_steps))
@@ -169,9 +133,6 @@ def linear_beta_schedule(global_step: int, warmup_steps: int, beta_max: float) -
 # -----------------------------
 
 class PitchConditioner(nn.Module):
-    """
-    Maps MIDI pitch (0..127) to a dense conditioning vector via an embedding.
-    """
     def __init__(self, vocab_size: int = 128, cond_dim: int = 16):
         super().__init__()
         self.vocab_size = vocab_size
@@ -179,23 +140,12 @@ class PitchConditioner(nn.Module):
         self.embed = nn.Embedding(vocab_size, cond_dim)
 
     def forward(self, pitch: torch.Tensor) -> torch.Tensor:
-        """
-        pitch: (B,) integer tensor in [0, vocab_size-1]
-        returns: (B, cond_dim)
-        """
         if pitch.dtype != torch.long:
             pitch = pitch.long()
         return self.embed(pitch)
 
 
 class ConditionalConvDecoder(nn.Module):
-    """
-    Pitch-conditioned version of ConvDecoder.
-
-    Only change vs baseline decoder:
-      fc takes [z, cond] concatenated:
-        (B, latent_dim + cond_dim) -> flatten_dim (10240)
-    """
     def __init__(self, latent_dim: int = 32, cond_dim: int = 16):
         super().__init__()
 
@@ -212,11 +162,7 @@ class ConditionalConvDecoder(nn.Module):
         self.deconv3 = nn.ConvTranspose2d(16, 1,  kernel_size=4, stride=2, padding=1)
 
     def forward(self, z: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
-        """
-        z:    (B, latent_dim)
-        cond: (B, cond_dim)
-        """
-        zc = torch.cat([z, cond], dim=1)  # (B, latent_dim+cond_dim)
+        zc = torch.cat([z, cond], dim=1)
         x = self.fc(zc).view(z.size(0), self.C, self.H, self.W)
         x = F.relu(self.deconv1(x))
         x = F.relu(self.deconv2(x))
@@ -225,15 +171,6 @@ class ConditionalConvDecoder(nn.Module):
 
 
 class ConditionalVAE(nn.Module):
-    """
-    Pitch-conditioned VAE (conditioning only in the decoder).
-
-    Encoder:
-      q(z|x) = N(mu(x), sigma(x))   (same as baseline)
-
-    Decoder:
-      p(x|z, pitch) using pitch embedding
-    """
     def __init__(
         self,
         latent_dim: int = 32,
@@ -254,24 +191,18 @@ class ConditionalVAE(nn.Module):
         x: torch.Tensor,
         pitch: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        x:     (B, 1, 80, 128)
-        pitch: (B,) MIDI in [0..127]
-
-        returns: x_hat, mu, logvar, z
-        """
         mu, logvar = self.encoder(x)
         z = reparameterize(mu, logvar)
 
-        cond = self.pitch_cond(pitch)          # (B, cond_dim)
-        x_hat = self.decoder(z, cond)          # (B, 1, 80, 128)
+        cond = self.pitch_cond(pitch)
+        x_hat = self.decoder(z, cond)
 
         return x_hat, mu, logvar, z
 
     @torch.no_grad()
     def encode_mu(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Convenience method: returns mu(x) only (useful for timbre space plots).
-        """
         mu, _ = self.encoder(x)
         return mu
+
+
+__all__ = ["VAE", "ConditionalVAE", "vae_loss", "beta_schedule", "PitchConditioner"]
