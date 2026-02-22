@@ -6,6 +6,10 @@ from pathlib import Path as _Path
 import plotly.express as _px
 import plotly.graph_objects as _go
 
+from typing import Optional, Tuple
+
+import pandas as pd
+
 
 def lerp(a, b, alpha):
     return (1 - alpha) * a + alpha * b
@@ -164,10 +168,71 @@ def plot_umap_with_trajectory(emb2d: _np.ndarray, labels: _np.ndarray, traj2d: _
     if save_path is not None:
         save_path = _Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.show()
-        fig.write_html(str(save_path))
+        try:
+            fig.write_image(str(save_path))
+        except Exception:
+            print(f"Warning: Failed to save image. Attempting to save interactive HTML instead at {save_path.with_suffix('.html')}")
+            try:
+                fig.write_html(str(save_path.with_suffix('.html')))
+            except Exception:
+                pass
 
     return fig
+
+def plot_pca_with_trajectory(
+    emb2d: np.ndarray,
+    labels: np.ndarray,
+    traj2d: np.ndarray,
+    title: str = "",
+    save_path: Optional[_Path] = None,
+):
+    """Plot PCA background scatter colored by labels and overlay trajectory.
+
+    Uses Plotly and returns the figure. If save_path is provided, writes an HTML file.
+    """
+    df = pd.DataFrame({"x": emb2d[:, 0], "y": emb2d[:, 1], "label": labels})
+
+    fig = _px.scatter(df, x="x", y="y", color="label", title=title, opacity=0.7)
+
+    # trajectory line
+    traj_x = traj2d[:, 0]
+    traj_y = traj2d[:, 1]
+
+    fig.add_trace(
+        _go.Scatter(
+            x=traj_x,
+            y=traj_y,
+            mode="lines+markers",
+            line=dict(color="black", width=2),
+            marker=dict(size=8, color="black"),
+            name="trajectory",
+        )
+    )
+
+    # start marker (green) and end marker (red)
+    fig.add_trace(
+        _go.Scatter(x=[traj_x[0]], y=[traj_y[0]], mode="markers", marker=dict(size=12, color="green"), name="start")
+    )
+    fig.add_trace(
+        _go.Scatter(x=[traj_x[-1]], y=[traj_y[-1]], mode="markers", marker=dict(size=12, color="red"), name="end")
+    )
+
+    if save_path is not None:
+        save_path = _Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # prefer image export
+            fig.write_image(str(save_path))
+        except Exception:
+            # fallback to HTML if image export fails
+            print(f"Warning: Failed to save image. Attempting to save interactive HTML instead at {save_path.with_suffix('.html')}")
+            try:
+                fig.write_html(str(save_path.with_suffix('.html')))
+            except Exception:
+                pass
+
+    return fig
+
 
 
 # export new symbols
@@ -180,4 +245,5 @@ __all__ = [
     "select_pair_by_label",
     "project_trajectory_umap",
     "plot_umap_with_trajectory",
+    "plot_pca_with_trajectory",
 ]
