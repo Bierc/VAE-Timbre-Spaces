@@ -234,6 +234,98 @@ def plot_pca_with_trajectory(
     return fig
 
 
+def plot_interpolation_mels(
+    x_hat: torch.Tensor,
+    alphas: np.ndarray,
+    title: str = "",
+    n_cols: int = 5,
+    save_path: Optional[_Path] = None,
+    vmin: float = -80.0,
+    vmax: float = 0.0,
+    colorscale: str = "Magma",
+) -> "plotly.graph_objects.Figure":
+    """Plot decoded interpolation mel spectrograms using Plotly.
+
+    Args:
+        x_hat: Tensor or array with shape (n_steps, 1, n_mels, T) or (n_steps, C, n_mels, T)
+        alphas: array-like of length n_steps
+        title: figure title
+        n_cols: number of columns in grid
+        save_path: optional Path to save HTML (will append .html if missing)
+        vmin/vmax: color scale limits in dB
+        colorscale: Plotly colorscale name
+
+    Returns:
+        plotly.graph_objects.Figure
+    """
+    from math import ceil
+    from plotly.subplots import make_subplots
+
+    # ensure numpy
+    if torch.is_tensor(x_hat):
+        x_np = x_hat.detach().cpu().numpy()
+    else:
+        x_np = _np.asarray(x_hat)
+
+    if x_np.ndim != 4:
+        raise ValueError(f"x_hat must have shape (n_steps, ch, n_mels, T). Got {x_np.shape}")
+
+    n_steps = int(x_np.shape[0])
+    ch = int(x_np.shape[1])
+
+    # pick first channel
+    mels = x_np[:, 0, :, :]
+
+    # convert normalized mel to dB using the project's convention
+    mels_db = ((mels + 1.0) / 2.0) * 80.0 - 80.0
+
+    n_cols = max(1, int(n_cols))
+    n_rows = int(ceil(n_steps / float(n_cols)))
+
+    subplot_titles = [f"α={float(a):.2f}" for a in alphas]
+    # pad titles to n_rows*n_cols if needed
+    while len(subplot_titles) < n_rows * n_cols:
+        subplot_titles.append("")
+
+    fig = make_subplots(rows=n_rows, cols=n_cols, subplot_titles=subplot_titles, horizontal_spacing=0.02, vertical_spacing=0.03)
+
+    # add each heatmap as a trace pointing to the shared coloraxis
+    for i in range(n_steps):
+        r = (i // n_cols) + 1
+        c = (i % n_cols) + 1
+        z = mels_db[i]
+        hm = _go.Heatmap(z=z, zmin=vmin, zmax=vmax, colorscale=colorscale, colorbar=dict(len=0.4), showscale=False)
+        fig.add_trace(hm, row=r, col=c)
+        # reverse y-axis to emulate origin='lower'
+        fig.update_yaxes(autorange='reversed', row=r, col=c)
+
+    # attach a single visible colorbar by adding an invisible heatmap using coloraxis
+    # use last subplot for the colorbar placement
+    last_r = n_rows
+    last_c = ((n_steps - 1) % n_cols) + 1
+    cb_trace = _go.Heatmap(z=mels_db[-1], zmin=vmin, zmax=vmax, colorscale=colorscale, colorbar=dict(title='dB', len=0.8), showscale=True)
+    fig.add_trace(cb_trace, row=last_r, col=last_c)
+    fig.update_yaxes(autorange='reversed', row=last_r, col=last_c)
+
+    fig.update_layout(title_text=title, height=220 * n_rows, width=220 * min(n_cols, n_steps), template='plotly_white')
+
+    if save_path is not None:
+        save_path = _Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        if save_path.suffix.lower() != '.html':
+            save_path = save_path.with_suffix('.html')
+        # prefer HTML export (avoids kaleido issues); fall back to image only if HTML fails
+        try:
+            fig.write_html(str(save_path))
+        except Exception:
+            try:
+                fig.write_image(str(save_path.with_suffix('.png')))
+            except Exception:
+                pass
+
+    return fig
+
+
 
 # export new symbols
 __all__ = [
@@ -246,4 +338,5 @@ __all__ = [
     "project_trajectory_umap",
     "plot_umap_with_trajectory",
     "plot_pca_with_trajectory",
+    "plot_interpolation_mels",
 ]

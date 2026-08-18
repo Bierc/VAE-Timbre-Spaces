@@ -1,0 +1,13 @@
+data/nsynth_mel_cache/
+data/nsynth-valid.jsonwav/
+data/nsynth-train.jsonwav/
+data/nsynth-test.jsonwav/
+scripts/__pycache__/
+scripts/models/__pycache__/
+notebooks/ckpts/
+notebooks/outputs/runs/*
+notebooks/outputs/analysis/*
+outputs/*
+src/__pycache__/
+src/vae_timbre_spaces/__pycache__/
+src/vae_timbre_spaces/analysis/__pycache__/
